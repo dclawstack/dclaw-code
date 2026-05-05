@@ -1,0 +1,23 @@
+name: Deploy to Kubernetes
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: "3.14.0"
+      - run: |
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > kubeconfig
+          export KUBECONFIG=kubeconfig
+          helm upgrade --install dclaw-code ./helm/dclaw-code \
+            --namespace dclaw --create-namespace \
+            --set image.backend.tag=${{ github.sha }} \
+            --set image.frontend.tag=${{ github.sha }} \
+            --wait --timeout 5m

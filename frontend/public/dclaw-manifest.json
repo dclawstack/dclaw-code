@@ -1,0 +1,24 @@
+{
+  "app_id": "code",
+  "name": "DClaw Code",
+  "description": "AI-native IDE with code completion, refactoring, explanation, and test generation.",
+  "tagline": "AI-native IDE inside your desktop",
+  "version": "0.1.0",
+  "category": "developer",
+  "icon": "/icons/code.svg",
+  "color": "#1F2937",
+  "entrypoint": "/",
+  "api_base": "https://code.dclawstack.io",
+  "permissions": [
+    "read:projects",
+    "write:projects",
+    "read:files",
+    "write:files",
+    "read:snippets",
+    "write:snippets",
+    "read:chat",
+    "write:chat"
+  ],
+  "requires_auth": true,
+  "billing_plan": "free"
+}
