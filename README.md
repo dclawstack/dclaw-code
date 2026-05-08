@@ -78,3 +78,7 @@ helm upgrade --install dclaw-code ./helm/dclaw-code \
 ## DClaw Stack
 
 Part of the [DClaw Stack](https://github.com/dclawstack) — an AI-native application platform.
+
+## Contributors
+
+- [@ocagentexp-lgtm](https://github.com/ocagentexp-lgtm)
