@@ -1,57 +1,75 @@
 """Snippet endpoints."""
 
-from datetime import datetime, timezone
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.schemas.snippet import SnippetCreate, SnippetResponse
+from app.core.database import get_db
+from app.repositories.snippet_repo import SnippetRepository
+from app.schemas.snippet import SnippetCreate, SnippetResponse, SnippetUpdate
 
 router = APIRouter()
 
-MOCK_SNIPPETS: dict[UUID, dict] = {}
-
-
-def _to_response(s: dict) -> SnippetResponse:
-    return SnippetResponse(
-        id=s["id"],
-        project_id=s["project_id"],
-        title=s["title"],
-        content=s["content"],
-        language=s.get("language"),
-        tags=s.get("tags"),
-        line_start=s.get("line_start"),
-        line_end=s.get("line_end"),
-        created_at=s["created_at"],
-        updated_at=s["updated_at"],
-    )
-
 
 @router.get("", response_model=list[SnippetResponse])
-async def list_snippets(project_id: UUID | None = None) -> list[SnippetResponse]:
+async def list_snippets(
+    project_id: UUID | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> list[SnippetResponse]:
     """List snippets with optional project filter."""
-    snippets = list(MOCK_SNIPPETS.values())
-    if project_id:
-        snippets = [s for s in snippets if s["project_id"] == project_id]
-    return [_to_response(s) for s in snippets]
+    repo = SnippetRepository(db)
+    snippets = await repo.list_all(project_id=project_id)
+    return [SnippetResponse.model_validate(s) for s in snippets]
 
 
 @router.post("", response_model=SnippetResponse, status_code=status.HTTP_201_CREATED)
-async def create_snippet(data: SnippetCreate) -> SnippetResponse:
+async def create_snippet(
+    data: SnippetCreate,
+    db: AsyncSession = Depends(get_db),
+) -> SnippetResponse:
     """Create a new snippet."""
-    now = datetime.now(timezone.utc).isoformat()
-    sid = uuid4()
-    record = {
-        "id": sid,
-        "project_id": data.project_id,
-        "title": data.title,
-        "content": data.content,
-        "language": data.language,
-        "tags": data.tags,
-        "line_start": data.line_start,
-        "line_end": data.line_end,
-        "created_at": now,
-        "updated_at": now,
-    }
-    MOCK_SNIPPETS[sid] = record
-    return _to_response(record)
+    repo = SnippetRepository(db)
+    snippet = await repo.create(data)
+    return SnippetResponse.model_validate(snippet)
+
+
+@router.get("/{snippet_id}", response_model=SnippetResponse)
+async def get_snippet(
+    snippet_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> SnippetResponse:
+    """Get a snippet by ID."""
+    repo = SnippetRepository(db)
+    snippet = await repo.get_by_id(snippet_id)
+    if not snippet:
+        raise HTTPException(status_code=404, detail="Snippet not found")
+    return SnippetResponse.model_validate(snippet)
+
+
+@router.put("/{snippet_id}", response_model=SnippetResponse)
+async def update_snippet(
+    snippet_id: UUID,
+    data: SnippetUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> SnippetResponse:
+    """Update a snippet."""
+    repo = SnippetRepository(db)
+    snippet = await repo.get_by_id(snippet_id)
+    if not snippet:
+        raise HTTPException(status_code=404, detail="Snippet not found")
+    snippet = await repo.update(snippet, data)
+    return SnippetResponse.model_validate(snippet)
+
+
+@router.delete("/{snippet_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_snippet(
+    snippet_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete a snippet."""
+    repo = SnippetRepository(db)
+    snippet = await repo.get_by_id(snippet_id)
+    if not snippet:
+        raise HTTPException(status_code=404, detail="Snippet not found")
+    await repo.delete(snippet)

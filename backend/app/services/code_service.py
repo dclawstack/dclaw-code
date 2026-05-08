@@ -1,5 +1,8 @@
-"""AI code services (mock Ollama proxy)."""
+"""AI code services with Ollama/OpenRouter fallback."""
 
+import httpx
+
+from app.core.config import settings
 from app.schemas.code import (
     CodeCompletionRequest,
     CodeCompletionResponse,
@@ -11,213 +14,201 @@ from app.schemas.code import (
     CodeRefactorResponse,
 )
 
+_TIMEOUT = httpx.Timeout(60.0, connect=10.0)
 
-def count_lines(text: str) -> int:
-    """Count non-empty lines."""
-    return len([line for line in text.splitlines() if line.strip()])
+
+def _build_prompt(task: str, code: str | None = None, language: str | None = None) -> str:
+    lang = language or "python"
+    base = f"You are an expert {lang} programmer. {task}"
+    if code:
+        base += f"\n\n```\n{code}\n```\n"
+    return base
+
+
+async def _call_ollama(prompt: str) -> str | None:
+    """Try Ollama generate endpoint."""
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.post(
+                f"{settings.ollama_base_url}/api/generate",
+                json={
+                    "model": settings.ollama_model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.2, "num_predict": 512},
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("response", "")
+    except Exception:
+        return None
+
+
+async def _call_openrouter(prompt: str) -> str | None:
+    """Try OpenRouter chat completions endpoint."""
+    if not settings.openrouter_api_key:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {settings.openrouter_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "meta-llama/llama-3.1-8b-instruct",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.2,
+                    "max_tokens": 512,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            choices = data.get("choices", [])
+            if choices:
+                return choices[0].get("message", {}).get("content", "")
+            return None
+    except Exception:
+        return None
+
+
+async def _generate(prompt: str) -> str:
+    """Generate text using Ollama → OpenRouter → fallback."""
+    result = await _call_ollama(prompt)
+    if result:
+        return result
+    result = await _call_openrouter(prompt)
+    if result:
+        return result
+    return "# AI service unavailable. Check Ollama or OpenRouter configuration.\n"
+
+
+# ─── Mock fallbacks (used when LLM returns empty or errors) ────────────────
+
+_COMPLETIONS = {
+    "def fibonacci": (
+        'def fibonacci(n: int) -> int:\n'
+        '    """Return the nth Fibonacci number."""\n'
+        '    if n <= 1:\n'
+        '        return n\n'
+        '    a, b = 0, 1\n'
+        '    for _ in range(2, n + 1):\n'
+        '        a, b = b, a + b\n'
+        '    return b'
+    ),
+    "def quicksort": (
+        'def quicksort(arr: list[int]) -> list[int]:\n'
+        '    """Sort array using quicksort algorithm."""\n'
+        '    if len(arr) <= 1:\n'
+        '        return arr\n'
+        '    pivot = arr[len(arr) // 2]\n'
+        '    left = [x for x in arr if x < pivot]\n'
+        '    middle = [x for x in arr if x == pivot]\n'
+        '    right = [x for x in arr if x > pivot]\n'
+        '    return quicksort(left) + middle + quicksort(right)'
+    ),
+}
 
 
 async def code_completion(request: CodeCompletionRequest) -> CodeCompletionResponse:
     """Generate code completion from prompt."""
-    prompt_lower = request.prompt.lower()
+    prompt = _build_prompt(
+        f"Complete the following {request.language or 'python'} code. "
+        "Return ONLY the completed code, no explanations.",
+        request.prompt,
+        request.language,
+    )
+    completion = await _generate(prompt)
 
-    completions = {
-        "def fibonacci": (
-            'def fibonacci(n: int) -> int:\n'
-            '    """Return the nth Fibonacci number."""\n'
-            '    if n <= 1:\n'
-            '        return n\n'
-            '    a, b = 0, 1\n'
-            '    for _ in range(2, n + 1):\n'
-            '        a, b = b, a + b\n'
-            '    return b'
-        ),
-        "def quicksort": (
-            'def quicksort(arr: list[int]) -> list[int]:\n'
-            '    """Sort array using quicksort algorithm."""\n'
-            '    if len(arr) <= 1:\n'
-            '        return arr\n'
-            '    pivot = arr[len(arr) // 2]\n'
-            '    left = [x for x in arr if x < pivot]\n'
-            '    middle = [x for x in arr if x == pivot]\n'
-            '    right = [x for x in arr if x > pivot]\n'
-            '    return quicksort(left) + middle + quicksort(right)'
-        ),
-        "class": (
-            'class DataProcessor:\n'
-            '    """Process and transform data."""\n'
-            '\n'
-            '    def __init__(self, data: list[dict]) -> None:\n'
-            '        self.data = data\n'
-            '\n'
-            '    def filter_by(self, key: str, value) -> list[dict]:\n'
-            '        """Filter data by key-value pair."""\n'
-            '        return [item for item in self.data if item.get(key) == value]\n'
-            '\n'
-            '    def transform(self, fn) -> list:\n'
-            '        """Apply transformation function."""\n'
-            '        return [fn(item) for item in self.data]'
-        ),
-        "import": (
-            'import os\n'
-            'import sys\n'
-            'from typing import List, Dict, Optional\n'
-            'from datetime import datetime, timezone\n'
-            'from pathlib import Path'
-        ),
-        "async def": (
-            'async def fetch_data(url: str) -> dict:\n'
-            '    """Fetch JSON data from URL asynchronously."""\n'
-            '    import httpx\n'
-            '    async with httpx.AsyncClient() as client:\n'
-            '        response = await client.get(url, timeout=30.0)\n'
-            '        response.raise_for_status()\n'
-            '        return response.json()'
-        ),
-    }
-
-    completion = None
-    for keyword, code in completions.items():
-        if keyword in prompt_lower:
-            completion = code
-            break
-
-    if completion is None:
-        completion = (
-            f"# TODO: Implement based on prompt:\n"
-            f"# {request.prompt[:100]}\n"
-            f"\n"
-            f"pass  # AI completion placeholder"
-        )
+    if "unavailable" in completion:
+        # Fallback to keyword mock
+        prompt_lower = request.prompt.lower()
+        for keyword, code in _COMPLETIONS.items():
+            if keyword in prompt_lower:
+                completion = code
+                break
+        else:
+            completion = (
+                f"# TODO: Implement based on prompt:\n"
+                f"# {request.prompt[:100]}\n\npass  # AI completion placeholder"
+            )
 
     return CodeCompletionResponse(
-        completion=completion,
+        completion=completion.strip(),
         language=request.language,
-        model_used="codellama:7b-code",
+        model_used=settings.ollama_model,
         tokens_generated=len(completion.split()),
     )
 
 
 async def code_refactor(request: CodeRefactorRequest) -> CodeRefactorResponse:
     """Refactor code based on goal."""
-    changes = []
-    refactored = request.code
+    prompt = _build_prompt(
+        f"Refactor the following code to improve: {request.goal}. "
+        "Return ONLY the refactored code, no explanations.",
+        request.code,
+        request.language,
+    )
+    refactored = await _generate(prompt)
 
-    if "readability" in request.goal.lower():
-        changes.append("Added type hints and docstrings")
-        changes.append("Improved variable naming")
-        refactored = (
-            'def improved_function(data: list[dict]) -> list[dict]:\n'
-            '    """Process data with improved readability."""\n'
-            '    result: list[dict] = []\n'
-            '    for item in data:\n'
-            '        if item.get("active"):\n'
-            '            processed = {**item, "processed": True}\n'
-            '            result.append(processed)\n'
-            '    return result'
-        )
-    elif "performance" in request.goal.lower():
-        changes.append("Replaced loop with list comprehension")
-        changes.append("Reduced memory allocations")
-        refactored = (
-            'def optimized_function(data: list[dict]) -> list[dict]:\n'
-            '    """Optimized version using comprehensions."""\n'
-            '    return [{**item, "processed": True} for item in data if item.get("active")]'
-        )
-    else:
-        changes.append("Applied general improvements")
+    if "unavailable" in refactored:
         refactored = request.code + "\n\n# TODO: Review and improve"
 
     return CodeRefactorResponse(
         original_code=request.code,
-        refactored_code=refactored,
-        explanation=f"Refactored to {request.goal} with {len(changes)} improvements.",
-        changes_made=changes,
+        refactored_code=refactored.strip(),
+        explanation=f"Refactored to {request.goal}.",
+        changes_made=["Applied AI refactoring suggestions"],
         language=request.language,
     )
 
 
 async def code_explain(request: CodeExplainRequest) -> CodeExplainResponse:
     """Explain code at specified detail level."""
-    explanations = {
-        "brief": (
-            "This function processes a list of dictionaries, filtering active items "
-            "and returning processed results. It uses list comprehension for efficiency."
-        ),
-        "medium": (
-            "This function iterates over a list of dictionaries (data). For each item, "
-            "it checks if the 'active' key is truthy. If so, it creates a new dictionary "
-            "with all original keys plus a 'processed' flag set to True. The results are "
-            "collected into a new list using a list comprehension, which is more memory-efficient "
-            "than a for-loop with append."
-        ),
-        "detailed": (
-            "This function implements a data filtering and transformation pipeline:\n\n"
-            "1. **Input**: Accepts `data` — a list of dictionaries representing records.\n"
-            "2. **Iteration**: Uses a list comprehension to iterate over each item.\n"
-            "3. **Filtering**: Checks `item.get('active')` which returns the value for key 'active' "
-            "or None if missing. In Python, None and False are falsy, so only truthy values pass.\n"
-            "4. **Transformation**: Creates a new dictionary using `{**item, 'processed': True}` "
-            "which unpacks all key-value pairs from the original and adds/overwrites 'processed'.\n"
-            "5. **Output**: Returns a new list containing only filtered and transformed items.\n\n"
-            "**Key concepts**: List comprehension, dictionary unpacking, truthiness, immutability."
-        ),
-    }
+    prompt = _build_prompt(
+        f"Explain the following code at a {request.detail_level} level of detail. "
+        "Include key concepts and how the code works.",
+        request.code,
+        request.language,
+    )
+    explanation = await _generate(prompt)
 
-    detail = request.detail_level if request.detail_level in explanations else "medium"
+    if "unavailable" in explanation:
+        explanation = (
+            "This code processes data. AI explanation service is currently unavailable."
+        )
 
     return CodeExplainResponse(
         code=request.code,
-        explanation=explanations[detail],
-        key_concepts=["List comprehension", "Dictionary unpacking", "Filtering", "Immutability"],
+        explanation=explanation.strip(),
+        key_concepts=["AI-generated analysis"],
         language=request.language,
     )
 
 
 async def code_generate_tests(request: CodeGenerateTestsRequest) -> CodeGenerateTestsResponse:
     """Generate unit tests for code."""
-    test_code = (
-        'import pytest\n'
-        'from typing import List, Dict\n'
-        '\n'
-        '# Tests for the provided function\n'
-        '\n'
-        'def test_basic_functionality():\n'
-        '    """Test with standard input."""\n'
-        '    data = [\n'
-        '        {"id": 1, "active": True},\n'
-        '        {"id": 2, "active": False},\n'
-        '        {"id": 3, "active": True},\n'
-        '    ]\n'
-        '    result = process_data(data)\n'
-        '    assert len(result) == 2\n'
-        '    assert all(item["processed"] for item in result)\n'
-        '\n'
-        'def test_empty_list():\n'
-        '    """Test with empty input."""\n'
-        '    assert process_data([]) == []\n'
-        '\n'
-        'def test_all_inactive():\n'
-        '    """Test when no items are active."""\n'
-        '    data = [{"id": 1, "active": False}]\n'
-        '    assert process_data(data) == []\n'
-        '\n'
-        'def test_missing_active_key():\n'
-        '    """Test with missing active key (treated as falsy)."""\n'
-        '    data = [{"id": 1}]\n'
-        '    assert process_data(data) == []\n'
-        '\n'
-        'def test_preserves_original():\n'
-        '    """Ensure original data is not modified."""\n'
-        '    data = [{"id": 1, "active": True}]\n'
-        '    original = data[0].copy()\n'
-        '    process_data(data)\n'
-        '    assert data[0] == original\n'
+    prompt = _build_prompt(
+        f"Generate {request.framework} unit tests for the following code. "
+        "Return ONLY the test code, no explanations.",
+        request.code,
+        request.language,
     )
+    test_code = await _generate(prompt)
+
+    if "unavailable" in test_code:
+        test_code = (
+            'import pytest\n\n'
+            'def test_placeholder():\n'
+            '    """Replace with real tests."""\n'
+            '    pass\n'
+        )
 
     return CodeGenerateTestsResponse(
         original_code=request.code,
-        test_code=test_code,
+        test_code=test_code.strip(),
         framework=request.framework,
-        test_cases_count=5,
+        test_cases_count=test_code.count("def test_"),
     )

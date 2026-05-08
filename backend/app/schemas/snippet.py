@@ -22,6 +22,17 @@ class SnippetCreate(SnippetBase):
     project_id: UUID
 
 
+class SnippetUpdate(BaseModel):
+    """Schema for updating a snippet."""
+
+    title: str | None = Field(None, min_length=1, max_length=255)
+    content: str | None = None
+    language: str | None = Field(None, max_length=50)
+    tags: str | None = Field(None, max_length=255)
+    line_start: int | None = None
+    line_end: int | None = None
+
+
 class SnippetResponse(SnippetBase):
     """Snippet response schema."""
 

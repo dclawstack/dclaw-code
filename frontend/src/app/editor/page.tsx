@@ -1,15 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import Editor from "@monaco-editor/react";
 import { codeCompletion, codeRefactor, codeExplain, codeGenerateTests } from "@/lib/api";
 import type { CodeCompletionResponse, CodeRefactorResponse, CodeExplainResponse, CodeGenerateTestsResponse } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { Code2, Sparkles, Wrench, BookOpen, FlaskConical, Copy } from "lucide-react";
 
@@ -19,6 +17,14 @@ type ToolResult =
   | { type: "explain"; data: CodeExplainResponse }
   | { type: "tests"; data: CodeGenerateTestsResponse }
   | null;
+
+const LANGUAGE_MAP: Record<string, string> = {
+  python: "python",
+  typescript: "typescript",
+  javascript: "javascript",
+  rust: "rust",
+  go: "go",
+};
 
 export default function EditorPage() {
   const [code, setCode] = useState("def process_data(data):\n    result = []\n    for item in data:\n        if item.get('active'):\n            result.append({**item, 'processed': True})\n    return result");
@@ -119,14 +125,22 @@ export default function EditorPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card className="min-h-[500px]">
+        <Card className="min-h-[500px] overflow-hidden">
           <CardHeader className="pb-2"><CardTitle className="text-xs font-medium text-muted-foreground">Source Code</CardTitle></CardHeader>
           <CardContent className="p-0">
-            <Textarea
+            <Editor
+              height="460px"
+              language={LANGUAGE_MAP[language] || "plaintext"}
               value={code}
-              onChange={(e) => setCode(e.target.value)}
-              className="min-h-[460px] font-mono text-sm border-0 rounded-none resize-none focus-visible:ring-0"
-              spellCheck={false}
+              onChange={(v) => setCode(v ?? "")}
+              theme="vs-dark"
+              options={{
+                minimap: { enabled: false },
+                fontSize: 14,
+                wordWrap: "on",
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+              }}
             />
           </CardContent>
         </Card>

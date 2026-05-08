@@ -22,6 +22,15 @@ class FileCreate(FileBase):
     project_id: UUID
 
 
+class FileUpdate(BaseModel):
+    """Schema for updating a file."""
+
+    path: str | None = Field(None, min_length=1, max_length=500)
+    content: str | None = None
+    language: str | None = Field(None, max_length=50)
+    git_status: str | None = Field(None, max_length=20)
+
+
 class FileResponse(FileBase):
     """File response schema."""
 

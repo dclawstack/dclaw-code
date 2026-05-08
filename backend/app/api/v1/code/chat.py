@@ -1,10 +1,12 @@
 """Chat and code AI endpoints."""
 
-from datetime import datetime, timezone
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import get_db
+from app.repositories.chat_repo import ChatMessageRepository
 from app.schemas.chat_message import ChatMessageCreate, ChatMessageResponse
 from app.schemas.code import (
     CodeCompletionRequest,
@@ -25,37 +27,27 @@ from app.services.code_service import (
 
 router = APIRouter()
 
-MOCK_MESSAGES: dict[UUID, dict] = {}
+
+@router.get("/messages", response_model=list[ChatMessageResponse])
+async def list_messages(
+    project_id: UUID | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> list[ChatMessageResponse]:
+    """List chat messages with optional project filter."""
+    repo = ChatMessageRepository(db)
+    messages = await repo.list_all(project_id=project_id)
+    return [ChatMessageResponse.model_validate(m) for m in messages]
 
 
 @router.post("/messages", response_model=ChatMessageResponse)
-async def create_message(data: ChatMessageCreate) -> ChatMessageResponse:
+async def create_message(
+    data: ChatMessageCreate,
+    db: AsyncSession = Depends(get_db),
+) -> ChatMessageResponse:
     """Create a chat message."""
-    now = datetime.now(timezone.utc).isoformat()
-    mid = uuid4()
-    record = {
-        "id": mid,
-        "project_id": data.project_id,
-        "role": data.role,
-        "content": data.content,
-        "model": data.model,
-        "context_code": data.context_code,
-        "file_path": data.file_path,
-        "created_at": now,
-        "updated_at": now,
-    }
-    MOCK_MESSAGES[mid] = record
-    return ChatMessageResponse(
-        id=mid,
-        project_id=data.project_id,
-        role=data.role,
-        content=data.content,
-        model=data.model,
-        context_code=data.context_code,
-        file_path=data.file_path,
-        created_at=now,
-        updated_at=now,
-    )
+    repo = ChatMessageRepository(db)
+    message = await repo.create(data)
+    return ChatMessageResponse.model_validate(message)
 
 
 @router.post("/completion", response_model=CodeCompletionResponse)
