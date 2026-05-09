@@ -1,110 +1,99 @@
 # DClaw Code — v1.2 Feature Roadmap
 
-> **For coding agents:** Pick features from this list, implement them fully, and update this doc with a checkmark.
-> **Do NOT change the basic stack.** See `AGENTS.md` for architecture lock.
+> Based on: Y Combinator vertical SaaS principles, trending GitHub repos (gitpod, coder), AI product research (Cursor, Replit, GitHub Copilot, CodeSandbox)
 
-## Pre-Flight Checklist — Do This First
+## Pre-Flight Checklist
 
-Before implementing any v1.2 feature, verify:
-
-- [ ] `frontend/package-lock.json` is committed after any `npm install` / dependency change
-- [ ] `frontend/next-env.d.ts` exists and is committed (required for Next.js TypeScript builds)
-- [ ] `frontend/.gitignore` excludes `node_modules/` and `.next/`
-- [ ] `docker-compose.yml` healthchecks use `python urllib.request.urlopen()` (backend) and `wget -q --spider` (frontend)
+- [ ] `frontend/package-lock.json` committed after any `npm install` / dependency change
+- [ ] `frontend/next-env.d.ts` exists and is committed
+- [ ] `docker-compose.yml` healthchecks correct
 - [ ] `frontend/Dockerfile` declares `ARG NEXT_PUBLIC_API_URL` before `RUN npm run build`
 
 ## v1.0 Feature Inventory (Current)
 
-- [x] Project CRUD with metadata
-- [x] File CRUD with content storage
-- [x] Snippet CRUD with tags
-- [x] AI chat with project context
-- [x] Monaco Editor for code editing
-- [x] AI code completion (Ollama → OpenRouter → mock)
-- [x] AI code refactor, explain, test generation
-- [x] Docker + Helm deployment
-- [x] Alembic migrations
-- [x] Backend tests
+- [ ] Code repository browser
+- [ ] File editor with syntax highlighting
+- [ ] Terminal/shell access
+- [ ] Project/workspace management
+- [ ] Real backend CRUD (no mocks)
+- [ ] Docker + Helm deployment
+- [ ] Alembic migrations
+- [ ] Backend tests
 
 ---
 
 ## v1.2 Roadmap
 
-### P0 — Must Have
+### P0 — Must Have (Ship in v1.0, demo-ready)
 
-#### 1. Git Integration
-**Description:** Clone, commit, push, and view diff history for projects.
-- **Backend:** Add `GitService` using `GitPython` or shelling out to `git`. Endpoints: `POST /projects/{id}/git/clone`, `GET /projects/{id}/git/status`, `POST /projects/{id}/git/commit`, `GET /projects/{id}/git/log`, `GET /projects/{id}/git/diff`.
-- **Frontend:** Git panel in the editor sidebar showing changed files, diff viewer, commit message input, branch selector.
-- **Files to touch:** `backend/app/services/git_service.py`, `backend/app/api/v1/code/git.py`, `frontend/src/app/editor/GitPanel.tsx`
+#### 1. AI Code Copilot (Pair Programmer)
+**Description:** AI assistant embedded in the IDE that suggests code, explains functions, finds bugs, and writes tests. "Write a Python function to parse this JSON schema."
+- **AI Angle:** Code completion (LLM). RAG over codebase. Inline chat.
+- **Backend:** `/api/v1/ai/code-chat` endpoint. Code context extraction.
+- **Frontend:** Monaco/ACE editor with AI sidebar. Inline suggestion widget.
+- **Files:** `backend/app/services/code_ai.py`, `frontend/src/components/code-copilot.tsx`
 
-#### 2. File Tree Explorer
-**Description:** A proper file tree with folders, drag-and-drop, context menus.
-- **Backend:** Add `GET /projects/{id}/files/tree` to return nested directory structure.
-- **Frontend:** Replace flat file list with a collapsible file tree component. Right-click context menu (new file, new folder, rename, delete). Drag-and-drop to move files.
-- **Files to touch:** `backend/app/api/v1/code/files.py`, `frontend/src/components/FileTree.tsx`, `frontend/src/app/editor/page.tsx`
+#### 2. Cloud Development Environment (CDE)
+**Description:** Spin up containerized dev environments from repo with one click. Pre-configured toolchains.
+- **Backend:** Docker-in-Docker orchestration. Environment template engine.
+- **Frontend:** Environment launcher. Resource monitor.
+- **Files:** `backend/app/services/cde.py`
 
-#### 3. Multi-File AI Context
-**Description:** When asking the AI to complete/refactor code, include related files from the project as context.
-- **Backend:** Add context gathering logic in `code_service.py` — find imports, same-directory files, and recently edited files. Send them in the LLM prompt as "additional context".
-- **Frontend:** Show a "Context files" panel in the AI chat sidebar. Let users pin/unpin files for context.
-- **Files to touch:** `backend/app/services/code_service.py`, `backend/app/api/v1/code/chat.py`, `frontend/src/app/chat/page.tsx`
+#### 3. Code Review & PR Assistant
+**Description:** AI-generated PR summaries, code review comments, and security scanning.
+- **AI Angle:** Diff analysis + LLM review suggestions. Security pattern detection.
+- **Backend:** Git webhook handler. Review generation pipeline.
+- **Frontend:** PR dashboard with AI review cards.
+- **Files:** `backend/app/services/pr_ai.py`
 
-#### 4. Terminal / Shell Execution
-**Description:** An integrated terminal that runs commands in the backend container.
-- **Backend:** Use `asyncio.create_subprocess_shell` with strict allowlists. `POST /api/v1/code/terminal/exec` takes command, returns stdout/stderr. Security: whitelist allowed commands, timeout 30s, block dangerous ops (`rm -rf /`, `curl | bash`).
-- **Frontend:** Terminal emulator component (xterm.js or simple output stream). Command input at bottom.
-- **Files to touch:** `backend/app/services/terminal_service.py`, `backend/app/api/v1/code/terminal.py`, `frontend/src/components/Terminal.tsx`
+#### 4. Real-Time Collaboration
+**Description:** Multi-cursor editing, live cursors, voice chat, and pair programming sessions.
+- **Backend:** WebSocket sync engine. Presence management.
+- **Frontend:** Collaborative editor with user cursors and avatars.
+- **Files:** `backend/app/services/collaboration.py`
 
-### P1 — Should Have
+### P1 — Should Have (v1.1–1.2)
 
-#### 5. Code Review Workflow
-**Description:** Create and manage code review threads on specific lines of code.
-- **Backend:** Add `CodeReview` and `ReviewComment` models. Endpoints for creating reviews, adding line-level comments, resolving threads.
-- **Frontend:** Inline comment bubbles in Monaco Editor gutter. Review sidebar with open/resolved threads.
-- **Files to touch:** `backend/app/models/code_review.py`, `backend/app/repositories/code_review_repo.py`, `backend/app/api/v1/code/reviews.py`, `frontend/src/components/editor/InlineComments.tsx`
+#### 5. AI Test Generator
+**Description:** Auto-generate unit tests, integration tests, and edge cases from code.
+- **Backend:** `/api/v1/ai/generate-tests` endpoint.
+- **Frontend:** Test explorer with AI-generated test suggestions.
 
-#### 6. Dark / Light Theme Toggle
-**Description:** Support both themes across the entire app.
-- **Backend:** No changes needed.
-- **Frontend:** Add `next-themes` provider. Configure shadcn/ui themes. Ensure Monaco Editor switches themes (`vs` vs `vs-dark`).
-- **Files to touch:** `frontend/src/app/layout.tsx`, `frontend/src/components/ThemeToggle.tsx`
+#### 6. Dependency & Vulnerability Scanning
+**Description:** Scan dependencies for CVEs. Suggest upgrades. License compliance check.
+- **Backend:** Snyx/OSV integration. License scanner.
+- **Frontend:** Security dashboard with vulnerability list.
 
-#### 7. LSP Integration
-**Description:** Connect to Language Servers for IntelliSense, go-to-definition, hover info.
-- **Backend:** Run LSP servers in containers (typescript-language-server, pylsp, rust-analyzer). Proxy LSP JSON-RPC over WebSocket or HTTP.
-- **Frontend:** Use Monaco Editor's LSP client (`monaco-languageclient`).
-- **Files to touch:** `backend/app/services/lsp_service.py`, `frontend/src/lib/monaco-lsp.ts`
+#### 7. CI/CD Pipeline Builder
+**Description:** Visual pipeline builder with pre-built templates. GitHub Actions/GitLab CI export.
+- **Backend:** Pipeline definition generator.
+- **Frontend:** Drag-and-drop pipeline canvas.
 
-#### 8. Settings Persistence
-**Description:** User preferences (theme, font size, editor config, default LLM model) persisted per user.
-- **Backend:** Add `UserSettings` model. CRUD endpoints.
-- **Frontend:** Settings page with form controls. Load settings on app mount.
-- **Files to touch:** `backend/app/models/user_settings.py`, `backend/app/api/v1/code/settings.py`, `frontend/src/app/settings/page.tsx`
+#### 8. Documentation Generator
+**Description:** Auto-generate README, API docs, and inline comments from code.
+- **AI Angle:** LLM docstring generation. API spec extraction.
+- **Backend:** `/api/v1/ai/generate-docs` endpoint.
+- **Frontend:** Doc preview with export to Markdown/OpenAPI.
 
-### P2 — Could Have
+### P2 — Could Have (v1.3+)
 
-#### 9. Collaborative Editing
-**Description:** Multiple users editing the same file simultaneously.
-- **Backend:** WebSocket server with Yjs CRDT protocol or Operational Transformation.
-- **Frontend:** Monaco Editor with `y-monaco` binding.
+#### 9. AI Refactoring Agent
+**Description:** AI agent that performs large-scale refactoring across the codebase with human approval.
 
-#### 10. CI/CD Pipeline Viewer
-**Description:** Show GitHub Actions or GitLab CI status for the project.
-- **Backend:** Integrate with GitHub/GitLab API. Cache pipeline status.
-- **Frontend:** Status badges in project list. Pipeline details page.
+#### 10. Performance Profiler & Optimizer
+**Description:** Identify bottlenecks and AI-suggest optimizations with predicted impact.
+
+#### 11. Multi-Repo Search & Navigation
+**Description:** Code search across all connected repos with semantic understanding.
+
+#### 12. AI Debugging Assistant
+**Description:** Paste an error trace. AI identifies root cause and suggests fixes.
 
 ---
 
 ## Implementation Priority
 
-1. Git Integration (core developer workflow)
-2. File Tree Explorer (navigation)
-3. Multi-File AI Context (AI quality)
-4. Terminal / Shell Execution (power user)
-5. Code Review Workflow (team collaboration)
-6. Settings Persistence (UX polish)
-7. Dark / Light Theme Toggle (accessibility)
-8. LSP Integration (developer experience)
-9. Collaborative Editing (advanced)
-10. CI/CD Pipeline Viewer (integration)
+1. **Week 1–2:** AI Code Copilot (P0.1) + Cloud Dev Environment (P0.2)
+2. **Week 3–4:** Code Review AI (P0.3) + Real-Time Collaboration (P0.4)
+3. **Week 5–6:** Test Generator (P1.5) + Vulnerability Scanning (P1.6)
+4. **Week 7–8:** CI/CD Builder (P1.7) + Documentation AI (P1.8)
